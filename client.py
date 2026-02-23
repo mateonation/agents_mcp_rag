@@ -7,10 +7,9 @@ from mcp.client.stdio import stdio_client
 # Init local LLM via Ollama
 llm = AsyncOpenAI(
     base_url="http://localhost:11434/v1",
-    api_key="ollama" # Dummy key
+    api_key="ollama" 
 )
 
-# System Prompt with mandatory rules
 SYSTEM_PROMPT = """
 Eres un Coach de Productividad especializado en TDAH. Tu tono debe ser paciente, motivador y claro. 
 Tienes acceso a herramientas externas y debes cumplir estas reglas A RAJA TABLA:
@@ -19,28 +18,23 @@ Tienes acceso a herramientas externas y debes cumplir estas reglas A RAJA TABLA:
 3. Usa 'get_weather_impact' solo si el usuario menciona el clima.
 """
 
-# Helper to sanitize strings from local LLMs
-def sanitize_text(text: str) -> str:
+# Ultimate shield against invisible/surrogate characters
+def sanitize_text(text) -> str:
     if not text:
         return ""
-    return str(text).encode('utf-8', errors='replace').decode('utf-8')
+    # Strip characters in the surrogate range that crash the JSON encoder
+    return "".join(c for c in str(text) if not (0xD800 <= ord(c) <= 0xDFFF))
 
 async def run_agent():
-    # Setup MCP server
-    server_params = StdioServerParameters(
-        command="python",
-        args=["server.py"]
-    )
+    server_params = StdioServerParameters(command="python", args=["server.py"])
 
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             
-            # Load tools
             mcp_tools = await session.list_tools()
             print("[+] Connected to MCP. Tools loaded.")
             
-            # Format tools for Ollama API
             local_tools = []
             for t in mcp_tools.tools:
                 local_tools.append({
@@ -57,31 +51,28 @@ async def run_agent():
             print("Type 'exit' to quit.\n")
 
             while True:
-                user_msg = input("You: ")
+                user_msg = sanitize_text(input("You: "))
                 if user_msg.lower() == 'exit':
                     break
                     
                 messages.append({"role": "user", "content": user_msg})
 
-                # Call local LLM
                 response = await llm.chat.completions.create(
-                    model="llama3.2", # Using the lighter model
+                    model="llama3.2",
                     messages=messages,
                     tools=local_tools
                 )
                 
                 msg = response.choices[0].message
                 
-                # Check tool calls
                 if msg.tool_calls:
-                    # 1. Safely reconstruct and sanitize the assistant's message
                     safe_tool_calls = []
                     for tc in msg.tool_calls:
                         safe_tool_calls.append({
-                            "id": tc.id,
+                            "id": sanitize_text(tc.id),
                             "type": "function",
                             "function": {
-                                "name": tc.function.name,
+                                "name": sanitize_text(tc.function.name),
                                 "arguments": sanitize_text(tc.function.arguments)
                             }
                         })
@@ -92,39 +83,35 @@ async def run_agent():
                         "tool_calls": safe_tool_calls
                     })
 
-                    # 2. Execute tools safely
                     for tool_call in msg.tool_calls:
-                        print(f"\n[*] Using tool: {tool_call.function.name}...")
-                        
+                        print(f"\n[*] Using tool: {sanitize_text(tool_call.function.name)}...")
                         safe_args_str = sanitize_text(tool_call.function.arguments)
                         
                         try:
                             args = json.loads(safe_args_str)
                         except json.JSONDecodeError:
-                            print("[-] Warning: LLM generated invalid JSON arguments. Passing empty args.")
                             args = {}
                             
                         result = await session.call_tool(tool_call.function.name, args)
                         
-                        # Add tool result safely
                         messages.append({
                             "role": "tool",
-                            "tool_call_id": tool_call.id,
+                            "tool_call_id": sanitize_text(tool_call.id),
                             "content": sanitize_text(str(result.content))
                         })
                         
-                    # Final answer after tools
                     final_response = await llm.chat.completions.create(
                         model="llama3.2",
                         messages=messages
                     )
-                    final_msg = final_response.choices[0].message.content
+                    final_msg = sanitize_text(final_response.choices[0].message.content)
                     messages.append({"role": "assistant", "content": final_msg})
                     print(f"\nCoach: {final_msg}\n")
                     
                 else:
-                    messages.append({"role": "assistant", "content": sanitize_text(msg.content)})
-                    print(f"\nCoach: {msg.content}\n")
+                    safe_reply = sanitize_text(msg.content)
+                    messages.append({"role": "assistant", "content": safe_reply})
+                    print(f"\nCoach: {safe_reply}\n")
 
 if __name__ == "__main__":
     asyncio.run(run_agent())
