@@ -1,8 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 import chromadb
-import os
 import requests
-import urllib.parse
 
 # Init MCP server
 mcp = FastMCP("TDAH_Coach")
@@ -40,19 +38,23 @@ def get_weather_impact(location: str) -> str:
     Get real-time weather from internet to anticipate mood (Unrelated Tool).
     """
     try:
-        # Safely encode special chars like 'ñ' or spaces for the URL
-        city = urllib.parse.quote(location)
-        url = f"https://wttr.in/{city}?format=%C,+%t"
+        # Replace spaces with '+' for the URL
+        safe_city = location.replace(" ", "+")
+        url = f"https://wttr.in/{safe_city}?format=%C,+%t"
         
-        response = requests.get(url, timeout=5)
+        # VERY IMPORTANT: Disguise the request so the website doesn't block Python
+        headers = {'User-Agent': 'curl/7.68.0'}
+        
+        # Increased timeout to 10 seconds just in case the internet is slow
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             weather_data = response.text.strip()
             return f"The current real weather in {location} is: {weather_data}."
         else:
-            return f"Could not fetch weather for {location}."
+            return f"Could not fetch weather for {location}. Status: {response.status_code}"
             
-    except requests.RequestException as e:
+    except Exception as e:
         return f"Error connecting to internet: {str(e)}"
 
 if __name__ == "__main__":
