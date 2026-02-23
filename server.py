@@ -1,6 +1,8 @@
 from mcp.server.fastmcp import FastMCP
 import chromadb
 import os
+import requests
+import urllib.parse
 
 # Init MCP server
 mcp = FastMCP("TDAH_Coach")
@@ -20,7 +22,6 @@ def search_focus_strategy(query: str) -> str:
     if not res['documents'] or not res['documents'][0]:
         return "No relevant strategies found."
         
-    # Return chunks joined by separator
     return "\n---\n".join(res['documents'][0])
 
 @mcp.tool()
@@ -29,20 +30,30 @@ def add_tada_list_item(achievement: str) -> str:
     Save a micro-achievement to the Ta-Da list file (Related Tool).
     """
     file_path = "tada_list.txt"
-    
-    # Append achievement to file
     with open(file_path, "a", encoding="utf-8") as f:
         f.write(f"- {achievement}\n")
-        
     return f"Achievement '{achievement}' saved to Ta-Da list!"
 
 @mcp.tool()
 def get_weather_impact(location: str) -> str:
     """
-    Get weather to anticipate mood/energy changes (Unrelated Tool).
+    Get real-time weather from internet to anticipate mood (Unrelated Tool).
     """
-    return f"Weather in {location}: Cloudy, 18°C. Good weather to stay indoors."
+    try:
+        # Safely encode special chars like 'ñ' or spaces for the URL
+        city = urllib.parse.quote(location)
+        url = f"https://wttr.in/{city}?format=%C,+%t"
+        
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            weather_data = response.text.strip()
+            return f"The current real weather in {location} is: {weather_data}."
+        else:
+            return f"Could not fetch weather for {location}."
+            
+    except requests.RequestException as e:
+        return f"Error connecting to internet: {str(e)}"
 
 if __name__ == "__main__":
-    # Run server
     mcp.run()
