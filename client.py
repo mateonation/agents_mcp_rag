@@ -19,6 +19,12 @@ Tienes acceso a herramientas externas y debes cumplir estas reglas A RAJA TABLA:
 3. Usa 'get_weather_impact' solo si el usuario menciona el clima.
 """
 
+# Helper to sanitize strings from local LLMs
+def sanitize_text(text: str) -> str:
+    if not text:
+        return ""
+    return str(text).encode('utf-8', errors='replace').decode('utf-8')
+
 async def run_agent():
     # Setup MCP server
     server_params = StdioServerParameters(
@@ -59,7 +65,7 @@ async def run_agent():
 
                 # Call local LLM
                 response = await llm.chat.completions.create(
-                    model="llama3.2", # Local model running in WSL
+                    model="llama3.2", # Using the lighter model
                     messages=messages,
                     tools=local_tools
                 )
@@ -68,23 +74,48 @@ async def run_agent():
                 
                 # Check tool calls
                 if msg.tool_calls:
+                    # 1. Safely reconstruct and sanitize the assistant's message
+                    safe_tool_calls = []
+                    for tc in msg.tool_calls:
+                        safe_tool_calls.append({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": sanitize_text(tc.function.arguments)
+                            }
+                        })
+                        
+                    messages.append({
+                        "role": "assistant",
+                        "content": sanitize_text(msg.content) if msg.content else None,
+                        "tool_calls": safe_tool_calls
+                    })
+
+                    # 2. Execute tools safely
                     for tool_call in msg.tool_calls:
                         print(f"\n[*] Using tool: {tool_call.function.name}...")
                         
-                        args = json.loads(tool_call.function.arguments)
+                        safe_args_str = sanitize_text(tool_call.function.arguments)
+                        
+                        try:
+                            args = json.loads(safe_args_str)
+                        except json.JSONDecodeError:
+                            print("[-] Warning: LLM generated invalid JSON arguments. Passing empty args.")
+                            args = {}
+                            
                         result = await session.call_tool(tool_call.function.name, args)
                         
-                        # Add tool result to context
-                        messages.append(msg)
+                        # Add tool result safely
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": str(result.content)
+                            "content": sanitize_text(str(result.content))
                         })
                         
                     # Final answer after tools
                     final_response = await llm.chat.completions.create(
-                        model="llama3.1",
+                        model="llama3.2",
                         messages=messages
                     )
                     final_msg = final_response.choices[0].message.content
@@ -92,7 +123,7 @@ async def run_agent():
                     print(f"\nCoach: {final_msg}\n")
                     
                 else:
-                    messages.append({"role": "assistant", "content": msg.content})
+                    messages.append({"role": "assistant", "content": sanitize_text(msg.content)})
                     print(f"\nCoach: {msg.content}\n")
 
 if __name__ == "__main__":
