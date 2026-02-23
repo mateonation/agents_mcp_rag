@@ -29,8 +29,8 @@ class DocumentManager(FileSystemEventHandler):
         with open(filepath, 'r', encoding='utf-8') as f:
             text = f.read()
 
-        # Chunk text by empty lines
-        parr = [p for p in text.split('\n\n') if p.strip()]
+        # Chunk text by single lines
+        parr = [p for p in text.split('\n') if p.strip()]
         
         # Save chunks in DB
         for i, p in enumerate(parr):
