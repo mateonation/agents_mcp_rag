@@ -6,4 +6,5 @@ In order to run this project, the following python dependencies need to be insta
 ```bash
 pip install chromadb
 pip install watchdog
+pip install mcp
 ```
