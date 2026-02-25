@@ -89,7 +89,7 @@ async def random_task_picker() -> str:
     import random
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(base_dir, "todo_list.txt")
+    file_path = os.path.join(base_dir, "documents_tdah/todo_list.txt")
     
     if not os.path.exists(file_path):
         return f"Error: I cannot find the file. I am looking for it at: {file_path}"
